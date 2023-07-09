@@ -91,7 +91,7 @@
       "identifier": "customSystemPrompt",
       "type": "text",
       "title": "系统指令",
-      "defaultValue": "Please respond to the following sentences sent by my coworker. Use bullet points if there are multiple solutions for each sentence.",
+      "defaultValue": "Please respond to the following sentences sent by my coworker. Use bullet points if there are multiple solutions.",
       "desc": "可选项。自定义 System Prompt，填写则会覆盖默认的 System Prompt。自定义 Prompt可使用以下变量：\n\n`$text` - 需要润色的文本，即翻译窗口输入框内的文本 `$sourceLang` - 原文语言，即翻译窗口输入框内文本的语言，比如「简体中文」\n\n`$targetLang` - 目标语言，可以在翻译窗口中手动选择或自动检测，比如「English」",
       "textConfig": {
         "type": "visible",

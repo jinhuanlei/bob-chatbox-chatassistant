@@ -1,22 +1,6 @@
-/**
- * 由于各大服务商的语言代码都不大一样，
- * 所以我定义了一份 Bob 专用的语言代码，以便 Bob 主程序和插件之间互传语种。
- * Bob 语言代码列表 https://ripperhe.gitee.io/bob/#/plugin/addtion/language
- *
- * 转换的代码建议以下面的方式实现，
- * `xxx` 代表服务商特有的语言代码，请替换为真实的，
- * 具体支持的语种数量请根据实际情况而定。
- *
- * Bob 语言代码转服务商语言代码(以为 'zh-Hans' 为例): var lang = langMap.get('zh-Hans');
- * 服务商语言代码转 Bob 语言代码: var standardLang = langMapReverse.get('xxx');
- */
+//@ts-check
 
-var items = [
-  ["auto", "xxx"],
-  ["zh-Hans", "xxx"],
-  ["en", "xxx"],
-];
-
+var lang = require("./lang.js");
 var ChatGPTModels = [
   "gpt-3.5-turbo",
   "gpt-3.5-turbo-16k",
@@ -72,18 +56,313 @@ var HttpErrorCodes = {
   511: "Network Authentication Required",
 };
 
-var langMap = new Map(items);
-var langMapReverse = new Map(
-  items.map(([standardLang, lang]) => [lang, standardLang])
-);
+/**
+ * @param {string}  url
+ * @returns {string}
+ */
+function ensureHttpsAndNoTrailingSlash(url) {
+  const hasProtocol = /^[a-z]+:\/\//i.test(url);
+  const modifiedUrl = hasProtocol ? url : "https://" + url;
+
+  return modifiedUrl.endsWith("/") ? modifiedUrl.slice(0, -1) : modifiedUrl;
+}
+
+/**
+ * @param {boolean} isAzureServiceProvider - Indicates if the service provider is Azure.
+ * @param {string} apiKey - The authentication API key.
+ * @returns {{
+ *   "Content-Type": string;
+ *   "api-key"?: string;
+ *   "Authorization"?: string;
+ * }} The header object.
+ */
+function buildHeader(isAzureServiceProvider, apiKey) {
+  return {
+    "Content-Type": "application/json",
+    [isAzureServiceProvider ? "api-key" : "Authorization"]:
+      isAzureServiceProvider ? apiKey : `Bearer ${apiKey}`,
+  };
+}
+
+/**
+ * @param {string} basePrompt
+ * @param {"coworker" | "friend"} targetRole
+ * @param {Bob.TranslateQuery} query
+ * @returns {string}
+ */
+function generateSystemPrompt(basePrompt, targetRole, query) {
+  const defaultTargetRole = "coworker";
+  const defaultMessage = `Please respond to the following sentences sent by my ${defaultTargetRole}. Use bullet points if there are multiple solutions.`;
+  return basePrompt || defaultMessage;
+}
+
+/**
+ * @param {string} prompt
+ * @param {Bob.TranslateQuery} query
+ * @returns {string}
+ */
+function replacePromptKeywords(prompt, query) {
+  if (!prompt) return prompt;
+  return prompt
+    .replace("$text", query.text)
+    .replace("$sourceLang", query.detectFrom)
+    .replace("$targetLang", query.detectTo);
+}
+
+/**
+ * @param {typeof ChatGPTModels[number]} model
+ * @param {boolean} isChatGPTModel
+ * @param {Bob.TranslateQuery} query
+ * @returns {{
+ *  model: typeof ChatGPTModels[number];
+ *  temperature: number;
+ *  max_tokens: number;
+ *  top_p: number;
+ *  frequency_penalty: number;
+ *  presence_penalty: number;
+ *  messages?: {
+ *    role: "system" | "user";
+ *    content: string;
+ *  }[];
+ *  prompt?: string;
+ * }}
+ */
+function buildRequestBody(model, isChatGPTModel, query) {
+  const { customSystemPrompt, customUserPrompt, polishingMode } = $option;
+
+  const systemPrompt = generateSystemPrompt(
+    replacePromptKeywords(customSystemPrompt, query),
+    polishingMode,
+    query
+  );
+  const userPrompt = customUserPrompt
+    ? `${replacePromptKeywords(customUserPrompt, query)}:\n\n"${query.text}"`
+    : query.text;
+
+  const standardBody = {
+    model,
+    stream: true,
+    temperature: 0.2,
+    max_tokens: 1000,
+    top_p: 1,
+    frequency_penalty: 1,
+    presence_penalty: 1,
+  };
+
+  if (isChatGPTModel) {
+    return {
+      ...standardBody,
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt,
+        },
+        {
+          role: "user",
+          content: userPrompt,
+        },
+      ],
+    };
+  }
+  return {
+    ...standardBody,
+    prompt: `${systemPrompt}\n\n${userPrompt}`,
+  };
+}
+
+/**
+ * @param {Bob.TranslateQuery} query
+ * @param {Bob.HttpResponse} result
+ * @returns {void}
+ */
+function handleError(query, result) {
+  const { statusCode } = result.response;
+  const reason = statusCode >= 400 && statusCode < 500 ? "param" : "api";
+  query.onCompletion({
+    error: {
+      type: reason,
+      message: `接口响应错误 - ${HttpErrorCodes[statusCode]}`,
+      addtion: JSON.stringify(result),
+    },
+  });
+}
+
+/**
+ * @param {Bob.TranslateQuery} query
+ * @param {boolean} isChatGPTModel
+ * @param {string} targetText
+ * @param {string} textFromResponse
+ * @returns {string}
+ */
+function handleResponse(query, isChatGPTModel, targetText, textFromResponse) {
+  if (textFromResponse !== "[DONE]") {
+    try {
+      const dataObj = JSON.parse(textFromResponse);
+      const { choices } = dataObj;
+      if (!choices || choices.length === 0) {
+        query.onCompletion({
+          error: {
+            type: "api",
+            message: "接口未返回结果",
+            addtion: textFromResponse,
+          },
+        });
+        return targetText;
+      }
+
+      const content = isChatGPTModel
+        ? choices[0].delta.content
+        : choices[0].text;
+      if (content !== undefined) {
+        targetText += content;
+        query.onStream({
+          result: {
+            from: query.detectFrom,
+            to: query.detectTo,
+            toParagraphs: [targetText],
+          },
+        });
+      }
+    } catch (err) {
+      query.onCompletion({
+        error: {
+          type: err._type || "param",
+          message: err._message || "Failed to parse JSON",
+          addtion: err._addition,
+        },
+      });
+    }
+  }
+  return targetText;
+}
+
+/**
+ * @type {Bob.Translate}
+ */
+function translate(query, completion) {
+  if (!lang.langMap.get(query.detectTo)) {
+    completion({
+      error: {
+        type: "unsupportLanguage",
+        message: "不支持该语种",
+        addtion: "不支持该语种",
+      },
+    });
+  }
+
+  const { model, apiKeys, apiUrl, deploymentName } = $option;
+
+  if (!apiKeys) {
+    completion({
+      error: {
+        type: "secretKey",
+        message: "配置错误 - 请确保您在插件配置中填入了正确的 API Keys",
+        addtion: "请在插件配置中填写 API Keys",
+      },
+    });
+  }
+  const trimmedApiKeys = apiKeys.endsWith(",") ? apiKeys.slice(0, -1) : apiKeys;
+  const apiKeySelection = trimmedApiKeys.split(",").map((key) => key.trim());
+  const apiKey =
+    apiKeySelection[Math.floor(Math.random() * apiKeySelection.length)];
+
+  const modifiedApiUrl = ensureHttpsAndNoTrailingSlash(
+    apiUrl || "https://api.openai.com"
+  );
+
+  const isChatGPTModel = ChatGPTModels.includes(model);
+  const isAzureServiceProvider = modifiedApiUrl.includes("openai.azure.com");
+  let apiUrlPath = isChatGPTModel ? "/v1/chat/completions" : "/v1/completions";
+
+  if (isAzureServiceProvider) {
+    if (deploymentName) {
+      apiUrlPath = `/openai/deployments/${deploymentName}`;
+      apiUrlPath += isChatGPTModel
+        ? "/chat/completions?api-version=2023-03-15-preview"
+        : "/completions?api-version=2022-12-01";
+    } else {
+      completion({
+        error: {
+          type: "secretKey",
+          message: "配置错误 - 未填写 Deployment Name",
+          addtion: "请在插件配置中填写 Deployment Name",
+        },
+      });
+    }
+  }
+
+  const header = buildHeader(isAzureServiceProvider, apiKey);
+  const body = buildRequestBody(model, isChatGPTModel, query);
+
+  let targetText = ""; // 初始化拼接结果变量
+  let buffer = ""; // 新增 buffer 变量
+  (async () => {
+    await $http.streamRequest({
+      method: "POST",
+      url: modifiedApiUrl + apiUrlPath,
+      header,
+      body,
+      cancelSignal: query.cancelSignal,
+      streamHandler: (streamData) => {
+        if (streamData.text.includes("Invalid token")) {
+          query.onCompletion({
+            error: {
+              type: "secretKey",
+              message: "配置错误 - 请确保您在插件配置中填入了正确的 API Keys",
+              addtion: "请在插件配置中填写正确的 API Keys",
+            },
+          });
+        } else {
+          // 将新的数据添加到缓冲变量中
+          buffer += streamData.text;
+          // 检查缓冲变量是否包含一个完整的消息
+          while (true) {
+            const match = buffer.match(/data: (.*?})\n/);
+            if (match) {
+              // 如果是一个完整的消息，处理它并从缓冲变量中移除
+              const textFromResponse = match[1].trim();
+              targetText = handleResponse(
+                query,
+                isChatGPTModel,
+                targetText,
+                textFromResponse
+              );
+              buffer = buffer.slice(match[0].length);
+            } else {
+              // 如果没有完整的消息，等待更多的数据
+              break;
+            }
+          }
+        }
+      },
+      handler: (result) => {
+        if (result.response.statusCode >= 400) {
+          handleError(query, result);
+        } else {
+          query.onCompletion({
+            result: {
+              from: query.detectFrom,
+              to: query.detectTo,
+              toParagraphs: [targetText],
+            },
+          });
+        }
+      },
+    });
+  })().catch((err) => {
+    completion({
+      error: {
+        type: err._type || "unknown",
+        message: err._message || "未知错误",
+        addtion: err._addition,
+      },
+    });
+  });
+}
 
 function supportLanguages() {
-  return items.map(([standardLang, lang]) => standardLang);
+  return lang.supportLanguages.map(([standardLang]) => standardLang);
 }
 
-function translate(query, completion) {
-  // 翻译成功
-  // completion({'result': result});
-  // 翻译失败
-  // completion({'error': error});
-}
+exports.supportLanguages = supportLanguages;
+exports.translate = translate;
