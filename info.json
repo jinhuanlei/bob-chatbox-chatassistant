@@ -1,0 +1,141 @@
+{
+    "identifier": "com.jlei.chatassistant",
+    "version": "0.1.0",
+    "category": "translate",
+    "name": "Chat Assistant - powered by chatGPT",
+    "summary": "chat assistant can be used to reply message to your coworker",
+    "author": "jlei",
+    "homepage": "",
+    "appcast": "",
+    "minBobVersion": "1.8.0",
+  "options": [
+    {
+      "identifier": "apiUrl",
+      "type": "text",
+      "title": "API URL",
+      "defaultValue": "https://api.openai.com",
+      "desc": "可选项。如果您的网络环境需要代理才能访问 OpenAI API, 可在这里修改为反代 API 的地址",
+      "textConfig": {
+        "type": "visible",
+        "placeholderText": "https://api.openai.com"
+      }
+    },
+    {
+      "identifier": "apiKeys",
+      "type": "text",
+      "title": "API KEY",
+      "desc": "必填项。可以用英文逗号分割多个 API KEY 以实现额度加倍及负载均衡",
+      "textConfig": {
+        "type": "secure",
+        "height": "40",
+        "placeholderText": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "identifier": "model",
+      "type": "menu",
+      "title": "模型",
+      "defaultValue": "gpt-3.5-turbo-0613",
+      "menuValues": [
+        {
+          "title": "gpt-3.5-turbo-0613 (recommended)",
+          "value": "gpt-3.5-turbo-0613"
+        },
+        {
+          "title": "gpt-3.5-turbo-0301",
+          "value": "gpt-3.5-turbo-0301"
+        },
+        {
+          "title": "gpt-3.5-turbo-16k",
+          "value": "gpt-3.5-turbo-16k"
+        },
+        {
+          "title": "gpt-3.5-turbo",
+          "value": "gpt-3.5-turbo"
+        },
+        {
+          "title": "gpt-4",
+          "value": "gpt-4"
+        },
+        {
+          "title": "gpt-4-0314",
+          "value": "gpt-4-0314"
+        },
+        {
+          "title": "gpt-4-0613",
+          "value": "gpt-4-0613"
+        },
+        {
+          "title": "gpt-4-32k",
+          "value": "gpt-4-32k"
+        },
+        {
+          "title": "gpt-4-32k-0314",
+          "value": "gpt-4-32k-0314"
+        },
+        {
+          "title": "gpt-4-32k-0613",
+          "value": "gpt-4-32k-0613"
+        },
+        {
+          "title": "text-davinci-003",
+          "value": "text-davinci-003"
+        },
+        {
+          "title": "text-davinci-002",
+          "value": "text-davinci-002"
+        }
+      ]
+    },
+    {
+      "identifier": "customSystemPrompt",
+      "type": "text",
+      "title": "系统指令",
+      "defaultValue": "Please respond to the following sentences sent by my coworker. Use bullet points if there are multiple solutions for each sentence.",
+      "desc": "可选项。自定义 System Prompt，填写则会覆盖默认的 System Prompt。自定义 Prompt可使用以下变量：\n\n`$text` - 需要润色的文本，即翻译窗口输入框内的文本 `$sourceLang` - 原文语言，即翻译窗口输入框内文本的语言，比如「简体中文」\n\n`$targetLang` - 目标语言，可以在翻译窗口中手动选择或自动检测，比如「English」",
+      "textConfig": {
+        "type": "visible",
+        "height": "100",
+        "placeholderText": "Revise the following sentences to make them more clear, concise, and coherent.",
+        "keyWords": [
+          "$text",
+          "$sourceLang",
+          "$targetLang"
+        ]
+      }
+    },
+    {
+      "identifier": "customUserPrompt",
+      "type": "text",
+      "title": "用户指令",
+      "defaultValue": "$text",
+      "desc": "可选项。自定义 User Prompt，填写则会覆盖默认的 User Prompt，默认值为`$text`（即翻译窗口输入框内的文本）\n\n自定义 Prompt 中可以使用与系统指令中相同的变量",
+      "textConfig": {
+        "type": "visible",
+        "height": "100",
+        "placeholderText": "$text",
+        "keyWords": [
+          "$text",
+          "$sourceLang",
+          "$targetLang"
+        ]
+      }
+    },
+    {
+        "identifier": "targetRole",
+        "type": "menu",
+        "title": "回复对象",
+        "defaultValue": "coworker",
+        "menuValues": [
+          {
+            "title": "同事",
+            "value": "coworker"
+          },
+          {
+            "title": "朋友",
+            "value": "friend"
+          }
+        ]
+      }
+  ]
+}
