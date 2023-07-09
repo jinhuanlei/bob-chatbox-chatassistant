@@ -91,8 +91,10 @@ function buildHeader(isAzureServiceProvider, apiKey) {
  * @returns {string}
  */
 function generateSystemPrompt(basePrompt, targetRole, query) {
-  const defaultTargetRole = "coworker";
-  const defaultMessage = `Please respond to the following sentences sent by my ${defaultTargetRole}. Use bullet points if there are multiple solutions.`;
+  const role = targetRole || "coworker";
+  const defaultMessage = `Please respond to the following sentences sent by my ${role}. Use bullet points if there are multiple solutions.`;
+  $log.info(targetRole);
+  $log.info(basePrompt);
   return basePrompt || defaultMessage;
 }
 
@@ -128,11 +130,11 @@ function replacePromptKeywords(prompt, query) {
  * }}
  */
 function buildRequestBody(model, isChatGPTModel, query) {
-  const { customSystemPrompt, customUserPrompt, polishingMode } = $option;
+  const { customSystemPrompt, customUserPrompt, targetRole } = $option;
 
   const systemPrompt = generateSystemPrompt(
     replacePromptKeywords(customSystemPrompt, query),
-    polishingMode,
+    targetRole,
     query
   );
   const userPrompt = customUserPrompt
